@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { GameState, PlayerRole, SystemNode, LogEntry, NodeType, DefenseType, AttackType, AttackerAction, DefenderAction, Defense } from './types';
+import { GameState, PlayerRole, SystemNode, LogEntry, NodeType, DefenseType, AttackType, AttackerAction, DefenderAction, Defense, Theme } from './types';
 import { INITIAL_SYSTEM_STATE, MAX_TURNS, DEFENSE_DETAILS, ATTACK_DETAILS } from './constants';
 import { getAttackerMove, getDefenderMove } from './services/geminiService';
 import NodeDisplay from './components/NodeDisplay';
@@ -13,6 +13,7 @@ const deepCopy = <T,>(obj: T): T => JSON.parse(JSON.stringify(obj));
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.MainMenu);
   const [playerRole, setPlayerRole] = useState<PlayerRole>('DEFENDER');
+  const [theme, setTheme] = useState<Theme>('dark');
   const [turn, setTurn] = useState(1);
   const [systemState, setSystemState] = useState<SystemNode[]>(deepCopy(INITIAL_SYSTEM_STATE));
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
@@ -20,6 +21,10 @@ const App: React.FC = () => {
   const [gameOverMessage, setGameOverMessage] = useState<{ title: string; message: string } | null>(null);
   const [attackerTarget, setAttackerTarget] = useState<NodeType | null>(null);
   const [lastPlayerAttack, setLastPlayerAttack] = useState<AttackerAction | undefined>(undefined);
+
+  useEffect(() => {
+    document.body.className = `theme-${theme}`;
+  }, [theme]);
 
   const addLogEntry = useCallback((message: string, options: Partial<Omit<LogEntry, 'message' | 'turn'>> = {}) => {
     setLogEntries(prev => [...prev, { turn, message, isAttack: false, ...options }]);
@@ -55,7 +60,7 @@ const App: React.FC = () => {
     return false;
   }, [turn]);
 
-  const applyAttack = (action: AttackerAction, currentSystem: SystemNode[]) => {
+  const applyAttack = (action: AttackerAction, currentSystem: SystemNode[], isAIAction: boolean) => {
     const newSystem = deepCopy(currentSystem);
     const targetNode = newSystem.find(n => n.id === action.target);
     if (!targetNode) return { updatedSystem: newSystem, success: false };
@@ -63,7 +68,6 @@ const App: React.FC = () => {
     let damage = ATTACK_DETAILS[action.attackType].baseDamage;
     let defenseStrength = 0;
     
-    // Calculate total defense strength against this attack type
     targetNode.defenses.forEach(defense => {
         if ((action.attackType === AttackType.DDoS || action.attackType === AttackType.Probe) && defense.type === DefenseType.FirewallBlock) {
             defenseStrength += defense.strength;
@@ -80,18 +84,18 @@ const App: React.FC = () => {
     
     addLogEntry(
         `Attacker used ${action.attackType} on ${targetNode.name}. Damage: ${totalDamage}. Health: ${targetNode.health}`,
-        { isAttack: true, isSuccess: success, type: 'ACTION' }
+        { isAttack: true, isSuccess: success, type: 'ACTION', isHidden: isAIAction }
     );
-    addLogEntry(`Justification: ${action.justification}`, { type: 'ATTACKER_JUSTIFICATION' });
-    addLogEntry(`Tip: ${action.educationalTip}`, { type: 'TIP' });
+    addLogEntry(`Justification: ${action.justification}`, { type: 'ATTACKER_JUSTIFICATION', isHidden: isAIAction });
+    addLogEntry(`Tip: ${action.educationalTip}`, { type: 'TIP', isHidden: isAIAction });
     
     setAttackerTarget(action.target);
-    setTimeout(() => setAttackerTarget(null), 1500); // Animation effect
+    setTimeout(() => setAttackerTarget(null), 1500);
 
     return { updatedSystem: newSystem, success };
   };
 
-  const applyDefense = (action: DefenderAction, currentSystem: SystemNode[]) => {
+  const applyDefense = (action: DefenderAction, currentSystem: SystemNode[], isAIAction: boolean) => {
     const newSystem = deepCopy(currentSystem);
     const targetNode = newSystem.find(n => n.id === action.target);
     if (!targetNode) return newSystem;
@@ -103,7 +107,7 @@ const App: React.FC = () => {
     
     addLogEntry(
       `Defender deployed ${defenseDetails.name} on ${targetNode.name}. ${action.justification ? `Justification: ${action.justification}`: ''}`,
-      { isAttack: false, type: 'ACTION' }
+      { isAttack: false, type: 'ACTION', isHidden: isAIAction }
     );
     
     return newSystem;
@@ -117,7 +121,7 @@ const App: React.FC = () => {
       justification: "Player initiated attack.",
       educationalTip: "Manual override by player.",
     };
-    const { updatedSystem } = applyAttack(action, systemState);
+    const { updatedSystem } = applyAttack(action, systemState, false);
     setSystemState(updatedSystem);
     setLastPlayerAttack(action);
     if (!checkGameOver(updatedSystem)) {
@@ -132,32 +136,31 @@ const App: React.FC = () => {
       type: defenseType,
       target: selectedNode.id,
     };
-    const updatedSystem = applyDefense(action, systemState);
+    const updatedSystem = applyDefense(action, systemState, false);
     setSystemState(updatedSystem);
     if (!checkGameOver(updatedSystem)) {
         setTurn(t => t + 1);
-        setGameState(playerRole === 'DEFENDER' ? GameState.AttackerTurn : GameState.DefenderTurn);
+        setGameState(playerRole === 'DEFENDER' ? GameState.AttackerTurn : GameState.AttackerTurn);
     }
   };
   
-  // AI Turn Logic
   useEffect(() => {
     if (gameState !== GameState.AttackerTurn && gameState !== GameState.DefenderTurn) {
         return;
     }
 
     const performAITurn = async () => {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // AI "thinks"
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
         let updatedSystem = systemState;
         
         if (gameState === GameState.AttackerTurn) {
             const aiAttack = await getAttackerMove(systemState, turn);
-            const result = applyAttack(aiAttack, systemState);
+            const result = applyAttack(aiAttack, systemState, true);
             updatedSystem = result.updatedSystem;
         } else if (gameState === GameState.DefenderTurn) {
             const aiDefense = await getDefenderMove(systemState, turn, lastPlayerAttack);
-            updatedSystem = applyDefense(aiDefense, systemState);
+            updatedSystem = applyDefense(aiDefense, systemState, true);
         }
         
         setSystemState(updatedSystem);
@@ -167,14 +170,31 @@ const App: React.FC = () => {
     };
 
     performAITurn();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState, turn]);
 
-  // UI Rendering
+  useEffect(() => {
+    if (gameState === GameState.Playing) {
+        const hasHiddenEntries = logEntries.some(e => e.isHidden);
+        if (hasHiddenEntries) {
+            const timer = setTimeout(() => {
+                setLogEntries(prev => prev.map(e => e.isHidden ? { ...e, isHidden: false } : e));
+            }, 500);
+            return () => clearTimeout(timer);
+        }
+    }
+  }, [gameState, logEntries]);
+
   const renderMainMenu = () => (
     <Modal title="Cyber Siege" buttonText="Start New Game" onButtonClick={() => setGameState(GameState.RoleSelection)}>
       <p>Welcome to Cyber Siege, a cybersecurity strategy game.</p>
-      <p>Defend your network against an AI attacker, or take on the role of the attacker and try to breach the system's defenses. Your choices will determine the fate of the network.</p>
+      <p>Defend your network against an AI attacker, or take on the role of the attacker and try to breach the system's defenses.</p>
+      <div className="mt-6">
+        <h4 className="text-lg font-semibold text-[color:var(--color-text-secondary)] mb-2">Select Theme</h4>
+        <div className="flex justify-center space-x-4">
+          <button onClick={() => setTheme('dark')} className={`px-4 py-2 rounded-md ${theme === 'dark' ? 'bg-green-600 text-white' : 'bg-gray-700'}`}>Dark</button>
+          <button onClick={() => setTheme('light')} className={`px-4 py-2 rounded-md ${theme === 'light' ? 'bg-green-600 text-white' : 'bg-gray-700'}`}>Light</button>
+        </div>
+      </div>
     </Modal>
   );
 
@@ -182,11 +202,11 @@ const App: React.FC = () => {
     <Modal title="Choose Your Role" buttonText="Back to Main Menu" onButtonClick={resetGame}>
         <div className="flex justify-center space-x-8">
             <button onClick={() => startGame('DEFENDER')} className="p-4 border-2 border-blue-500 rounded-lg hover:bg-blue-500/20">
-                <h3 className="text-xl font-bold text-blue-300">Defender</h3>
+                <h3 className="text-xl font-bold text-blue-400">Defender</h3>
                 <p>Protect the network from attacks.</p>
             </button>
             <button onClick={() => startGame('ATTACKER')} className="p-4 border-2 border-red-500 rounded-lg hover:bg-red-500/20">
-                <h3 className="text-xl font-bold text-red-300">Attacker</h3>
+                <h3 className="text-xl font-bold text-red-400">Attacker</h3>
                 <p>Breach the network's defenses.</p>
             </button>
         </div>
@@ -195,8 +215,8 @@ const App: React.FC = () => {
 
   const renderGame = () => (
     <main className="container mx-auto p-4 h-screen flex flex-col space-y-4">
-      <header className="flex justify-between items-center text-white p-2 bg-gray-900/50 border border-gray-700 rounded-lg">
-        <h1 className="text-2xl font-bold text-green-400">Cyber Siege</h1>
+      <header className="flex justify-between items-center p-2 rounded-lg" style={{ backgroundColor: 'var(--color-bg-secondary)', borderColor: 'var(--color-border-primary)', borderWidth: 1, color: 'var(--color-text-primary)'}}>
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text-accent)' }}>Cyber Siege</h1>
         <div>Turn: <span className="font-bold">{turn}</span> / {MAX_TURNS}</div>
         <div>Role: <span className="font-bold">{playerRole}</span></div>
       </header>
@@ -232,7 +252,7 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="bg-gray-900 text-white min-h-screen font-mono">
+    <div className="min-h-screen font-mono" style={{ backgroundColor: 'var(--color-bg-primary)', color: 'var(--color-text-primary)' }}>
       {gameState === GameState.MainMenu && renderMainMenu()}
       {gameState === GameState.RoleSelection && renderRoleSelection()}
       {[GameState.Playing, GameState.AttackerTurn, GameState.DefenderTurn].includes(gameState) && renderGame()}

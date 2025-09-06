@@ -10,6 +10,7 @@ export enum GameState {
 }
 
 export type PlayerRole = 'DEFENDER' | 'ATTACKER';
+export type Theme = 'dark' | 'light';
 
 export enum NodeType {
   Gateway = 'GATEWAY',
@@ -17,6 +18,8 @@ export enum NodeType {
   MailServer = 'MAIL_SERVER',
   Server = 'SERVER',
   Database = 'DATABASE',
+  DNSServer = 'DNS_SERVER',
+  BackupServer = 'BACKUP_SERVER',
 }
 
 export enum DefenseType {
@@ -69,4 +72,5 @@ export interface LogEntry {
   isAttack: boolean;
   isSuccess?: boolean;
   type?: LogType;
+  isHidden?: boolean;
 }
