@@ -1,0 +1,5 @@
+{
+  "name": "Cyber Duel: Defender vs Attacker",
+  "description": "A 2-player strategy game simulator where one player defends a system against an AI-powered hacker. Learn basic cybersecurity concepts in a fun, turn-based environment.",
+  "requestFramePermissions": []
+}
